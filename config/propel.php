@@ -1,5 +1,9 @@
 <?php
 
+if (!config('database')) {
+    app('config')->set('database', include('database.php'));
+}
+
 return [
     'propel' => [
         'general' => [
@@ -43,36 +47,54 @@ return [
         'database' => [
             # All database sources
             /***** We use data from database.php, please do not change this if you do not understand this code.  *****/
-            'connections' => [
-                'default' => [
-                    'adapter' => 'mysql',
-                    # Connection class. One of the Propel\Runtime\Connection classes
-                    'classname' => (env('APP_DEBUG', false) ? \Propel\Runtime\Connection\ProfilerConnectionWrapper::class : \Propel\Runtime\Connection\ConnectionWrapper::class),
-                    # The PDO dsn
-                    'dsn' => 'mysql:host='.env('DB_HOST', 'localhost').';port=3306;dbname='.env('DB_DATABASE', 'forge'),
-                    'user' => env('DB_USERNAME', 'forge'),
-                    'password' => env('DB_PASSWORD', ''),
-                    # Driver options. See http' => '//www.php.net/manual/en/pdo.construct.php
-                    # options must be passed to the contructor of the connection object
-                    'options' => [],
-                    # See http://www.php.net/manual/en/pdo.getattribute.php
-                    # Attributes are set via `setAttribute()` method, after the connection object is created
-                    'attributes' => [],
-                    #Propel specific settings
-                    'settings' => [
-                        'charset' => 'utf8',
-                        #Array of queries to run when the database connection is initialized
-                        'query' => [
-                            'SET NAMES utf8 COLLATE utf8_unicode_ci, COLLATION_CONNECTION = utf8_unicode_ci, COLLATION_DATABASE = utf8_unicode_ci, COLLATION_SERVER = utf8_unicode_ci'
+            'connections' => array_map(
+                function ($item) {
+                    $item['driver']   = isset($item['driver']) ? $item['driver'] : 'mysql';
+                    $item['host']     = isset($item['host']) ? $item['host'] : env('DB_HOST', 'localhost');
+                    $item['username'] = isset($item['username']) ? $item['username'] : env('DB_USERNAME', 'forge');
+                    $item['password'] = isset($item['password']) ? $item['password'] : env('DB_PASSWORD', '');
+                    $item['charset'] = isset($item['charset']) ? $item['charset'] : 'utf-8';
+                    $con = [
+                        'adapter' => $item['driver'],
+                        # Connection class. One of the Propel\Runtime\Connection classes
+                        'classname' => (config('app.debug', env('APP_DEBUG')) ? \Propel\Runtime\Connection\ProfilerConnectionWrapper::class : \Propel\Runtime\Connection\ConnectionWrapper::class),
+                        # The PDO dsn
+                        'dsn'      => $item['driver'] . ':host=' . $item['host'] . ';dbname=' . $item['database'] . (isset($item['port']) ? ';port=' . $item['port'] : ''),
+                        'user'     => $item['username'],
+                        'password' => $item['password'],
+                        # Driver options. See http' => '//www.php.net/manual/en/pdo.construct.php
+                        # options must be passed to the contructor of the connection object
+                        'options' => [],
+                        # See http://www.php.net/manual/en/pdo.getattribute.php
+                        # Attributes are set via `setAttribute()` method, after the connection object is created
+                        'attributes' => [],
+                        #Propel specific settings
+                        'settings' => [
+                            'charset' => $item['charset'],
                         ],
-                    ],
-                    'slaves' => [
-                        //[
-                        //    'dsn' => 'mysq:host=slave-host-1;dbname=bookstore',
-                        //],
-                    ],
-                ],
-            ],
+                        'slaves' => [
+                            //[
+                            //    'dsn' => 'mysq:host=slave-host-1;dbname=bookstore',
+                            //],
+                        ],
+                    ];
+                    if ($item['driver'] == 'mysql') {
+                        #Array of queries to run when the database connection is initialized
+                        $collation = isset($item['collation']) ? $item['collation'] : 'utf8_unicode_ci';
+                        $charset = isset($item['charset']) ? $item['charset'] : 'utf8';
+                        $con['settings']['query'] = [
+                            "SET NAMES {$charset} COLLATE {$collation}, COLLATION_CONNECTION = {$collation}, COLLATION_DATABASE = utf8_unicode_ci, COLLATION_SERVER = {$collation}"
+                        ];
+                    }
+                    return $con;
+                },
+                array_filter(
+                    config('database.connections'),
+                    function ($item) {
+                        return in_array(isset($item['driver']) ?: null, ['mssql', 'mysql', 'oracle', 'pgsql', 'sqlite', 'sqlsrv']);
+                    }
+                )
+            ),
 
             ## Specific adapter settings
             'adapters' => [
@@ -116,7 +138,7 @@ return [
         ## Reverse settings
         'reverse' => [
             # The connection to use to reverse the database
-            'connection' => 'default',
+            'connection' => config('database.default','default'),
 
             # Reverse parser class can be different from migration one
             # If you leave this property blank, Propel looks for an appropriate parser class, based on platform: i.e.
@@ -126,11 +148,11 @@ return [
 
         ## Runtime settings ##
         'runtime' => [
-            'defaultConnection' => 'default',
+            'defaultConnection' => config('database.default', 'default'),
             # Datasources as defined in database.connections
             # This section affects config:convert command
             'connections' => [
-                'default',
+                config('database.default', 'default'),
             ],
             ## Log and loggers definitions ##
             # For `type` and `level` options see Monolog documentation https://github.com/Seldaek/monolog
@@ -192,10 +214,10 @@ return [
         ],
         ## Generator settings ##
         'generator' => [
-            'defaultConnection' => 'default',
+            'defaultConnection' => config('database.default', 'default'),
             # Datasources as defined in database.connections
             'connections' => [
-                'default',
+                config('database.default', 'default'),
             ],
 
             # Add a prefix to all the table names in the database.
@@ -204,7 +226,14 @@ return [
             'tablePrefix' => null, //string
 
             # Platform class name
-            'platformClass' => \Propel\Generator\Platform\MysqlPlatform::class,
+            'platformClass' => '\Propel\Generator\Platform\\' . (
+                ucfirst(
+                    config(
+                        'database.connections.' . config('database.default', 'default') . '.driver',
+                        'mysql'
+                    )
+                )
+             ) . 'Platform',
 
             # The package to use for the generated classes.
             # This affects the value of the @package phpdoc tag, and it also affects
